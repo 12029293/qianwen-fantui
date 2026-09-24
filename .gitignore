@@ -1,0 +1,28 @@
+# 依赖与构建产物
+node_modules/
+dist/
+browsers/
+
+# 敏感数据：浏览器会话（含 Qwen 登录 Cookie），严禁上传
+session/
+session-chrome/
+
+# 用户数据与运行时产物
+uploads/
+debug/
+data/*.json
+*.log
+boot.log
+main-error.log
+stderr.txt
+
+# 测试媒体
+test-video.mp4
+test-video.webm
+test-image.png
+
+# 生成的图标源文件（保留 icon.ico 供构建）
+build/*.png
+
+# 工作区本地数据
+.workbuddy/

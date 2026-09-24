@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>视频反推提示词</title>
+<style>
+  :root {
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.65);
+    --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.12);
+    --text-main: #1f2430;
+    --text-sub: #5a6172;
+    --text-faint: #8b92a3;
+    --accent: #3d6bff;
+    --accent-soft: rgba(61, 107, 255, 0.12);
+    --ok: #1f9d55;
+    --ok-soft: rgba(31, 157, 85, 0.12);
+    --err: #d92d20;
+    --err-soft: rgba(217, 45, 32, 0.1);
+    --radius-lg: 18px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: var(--text-main);
+    background: linear-gradient(135deg, #e8eeff 0%, #f3ecff 45%, #ffeef5 100%);
+    position: relative;
+  }
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(90px);
+    z-index: 0;
+    pointer-events: none;
+  }
+  body::before {
+    width: 480px; height: 480px;
+    background: rgba(124, 156, 255, 0.35);
+    top: -120px; left: -120px;
+  }
+  body::after {
+    width: 420px; height: 420px;
+    background: rgba(255, 158, 205, 0.30);
+    bottom: -100px; right: -100px;
+  }
+
+  /* ============ 应用壳 ============ */
+  .app {
+    position: relative; z-index: 1;
+    height: 100vh;
+    max-width: 1560px; margin: 0 auto;
+    padding: 14px 18px 18px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: var(--radius-lg);
+  }
+
+  /* 顶部工具栏 */
+  .toolbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 18px;
+    flex-shrink: 0;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .logo {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: block; box-shadow: 0 4px 14px rgba(61, 107, 255, 0.35);
+  }
+  .brand .name {
+    font-size: 16px; font-weight: 700; letter-spacing: 0.3px;
+    background: linear-gradient(120deg, #2b3a8f, #6a3dbb 55%, #c23d7d);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .brand .ver {
+    font-size: 11px; color: var(--text-faint);
+    background: rgba(255,255,255,0.5); padding: 2px 8px; border-radius: 999px;
+    border: 1px solid rgba(90, 97, 114, 0.15);
+  }
+  .toolbar .spacer { flex: 1; }
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12.5px; color: var(--text-sub);
+    background: rgba(255,255,255,0.5); border: 1px solid rgba(90,97,114,0.15);
+    padding: 7px 14px; border-radius: 999px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #b9bfcc; flex-shrink: 0; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .dot.warn { background: #e8a713; box-shadow: 0 0 0 3px rgba(232, 167, 19, 0.15); }
+  .dot.err { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+  .win-btn {
+    border: 1px solid rgba(90, 97, 114, 0.2); background: rgba(255,255,255,0.5);
+    color: var(--text-sub); font-size: 12px;
+    padding: 7px 16px; border-radius: 999px; cursor: pointer; font-family: inherit;
+    transition: background .2s;
+  }
+  .win-btn:hover { background: rgba(255,255,255,0.9); }
+  .win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 主工作区：左右双栏 */
+  .main {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: 430px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .pane {
+    display: flex; flex-direction: column;
+    padding: 20px;
+    min-height: 0; overflow: hidden;
+  }
+  .pane-head {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 16px; flex-shrink: 0;
+  }
+  .pane-head h2 { font-size: 15px; font-weight: 700; }
+  .pane-head .num {
+    width: 22px; height: 22px; border-radius: 7px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pane-head .sub { font-size: 12px; color: var(--text-faint); margin-left: auto; }
+
+  /* 左栏：提交 */
+  .drop {
+    border: 1.5px dashed rgba(90, 97, 114, 0.35); border-radius: var(--radius-md);
+    padding: 22px 16px; text-align: center; cursor: pointer;
+    background: rgba(255, 255, 255, 0.35);
+    transition: border-color .2s, background .2s;
+    flex-shrink: 0;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: rgba(61, 107, 255, 0.06); }
+  .drop .icon { font-size: 32px; }
+  .drop .txt { font-size: 13px; color: var(--text-sub); margin-top: 8px; }
+  .drop .sub { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
+  .file-name { font-size: 12.5px; color: var(--accent); margin-top: 10px; word-break: break-all; flex-shrink: 0; }
+
+  .prompt-label {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; font-weight: 600; color: var(--text-sub);
+    margin: 16px 0 8px; flex-shrink: 0;
+  }
+  .btn-ghost {
+    background: rgba(255, 255, 255, 0.55); color: var(--text-sub);
+    font-size: 12px; padding: 6px 12px; border-radius: 8px;
+    border: 1px solid rgba(90, 97, 114, 0.2);
+    transition: background .2s; cursor: pointer; font-family: inherit;
+  }
+  .btn-ghost:hover { background: rgba(255, 255, 255, 0.9); }
+  .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  textarea {
+    flex: 1; min-height: 120px; border: 1px solid rgba(90, 97, 114, 0.25);
+    border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px;
+    font-family: inherit; resize: none; outline: none; line-height: 1.6;
+    background: rgba(255, 255, 255, 0.6); color: var(--text-main);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .btn-primary {
+    border: none; border-radius: var(--radius-sm);
+    background: linear-gradient(120deg, #3d6bff, #7a4dd8);
+    color: #fff; font-weight: 600; font-size: 15px;
+    padding: 13px; cursor: pointer; font-family: inherit;
+    box-shadow: 0 6px 20px rgba(61, 107, 255, 0.35);
+    transition: transform .15s, box-shadow .2s, opacity .2s;
+    margin-top: 16px; flex-shrink: 0;
+  }
+  .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 26px rgba(61, 107, 255, 0.4); }
+  .btn-primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+  .btn-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 右栏：任务队列 */
+  .badge {
+    display: inline-block;
+    font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  }
+  .badge.bump { animation: bump .45s ease; }
+  .badge.total { background: var(--accent-soft); color: var(--accent); }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.error { background: var(--err-soft); color: var(--err); }
+  .filters { display: flex; gap: 6px; }
+  .chip {
+    border: 1px solid rgba(90, 97, 114, 0.25); background: rgba(255,255,255,0.4);
+    color: var(--text-sub); font-size: 12px; padding: 4px 12px;
+    border-radius: 999px; cursor: pointer; font-family: inherit;
+    transition: all .2s;
+  }
+  .chip:hover { background: rgba(255,255,255,0.8); }
+  .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .chip .cnt { font-style: normal; font-size: 10.5px; opacity: .55; margin-left: 4px; }
+  .chip.active .cnt { opacity: .9; }
+  .chip .dot {
+    display: none; width: 7px; height: 7px; border-radius: 50%;
+    background: #ff4d5e; margin-left: 5px; vertical-align: 1px;
+  }
+  .chip.has-unread .dot { display: inline-block; animation: bump .45s ease; }
+
+  .queue-list {
+    flex: 1; min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    grid-auto-rows: max-content; /* 行高按内容计算，防止卡片被压缩裁切 */
+    gap: 12px;
+    align-content: start;
+    padding-right: 6px;
+  }
+  .queue-list::-webkit-scrollbar { width: 6px; }
+  .queue-list::-webkit-scrollbar-thumb { background: rgba(90, 97, 114, 0.25); border-radius: 3px; }
+  .queue-empty {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--text-faint); font-size: 13px; gap: 10px;
+  }
+  .queue-empty.hide { display: none; }
+  .queue-empty .icon { font-size: 40px; opacity: .6; }
+
+  /* 九宫格任务卡 */
+  .task-card {
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    box-shadow: 0 2px 12px rgba(31, 38, 135, 0.07);
+    display: flex; flex-direction: column;
+    overflow: hidden; min-width: 0;
+    transition: box-shadow .2s, transform .2s;
+  }
+  .task-card:hover { box-shadow: 0 8px 24px rgba(31, 38, 135, 0.15); transform: translateY(-2px); }
+  .task-card[data-filtered="hide"] { display: none; }
+  .task-card.st-done {
+    border-top: 4px solid var(--ok);
+    background: linear-gradient(180deg, rgba(52, 199, 123, 0.13), rgba(255, 255, 255, 0.55) 60%);
+    box-shadow: 0 3px 16px rgba(52, 199, 123, 0.22);
+  }
+  .task-card.st-error {
+    border-top: 4px solid var(--err);
+    background: linear-gradient(180deg, rgba(255, 77, 94, 0.10), rgba(255, 255, 255, 0.55) 60%);
+    box-shadow: 0 3px 16px rgba(255, 77, 94, 0.16);
+  }
+  .task-card.st-running { border-top: 3px solid var(--accent); }
+
+  /* 预览图底部完成/出错横幅：扫视卡片时最强的视觉锚点 */
+  .finish-strip {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 26px 0 8px; text-align: center;
+    font-size: 13.5px; font-weight: 700; letter-spacing: 2px; color: #fff;
+    pointer-events: none;
+  }
+  .finish-strip.ok { background: linear-gradient(180deg, rgba(52,199,123,0), rgba(38,168,99,.95) 55%); text-shadow: 0 1px 4px rgba(0,0,0,.3); }
+  .finish-strip.err { background: linear-gradient(180deg, rgba(255,77,94,0), rgba(224,57,74,.95) 55%); text-shadow: 0 1px 4px rgba(0,0,0,.3); }
+
+  /* 完成瞬间：光晕脉冲 + 徽标弹跳 */
+  @keyframes cardPop {
+    0% { box-shadow: 0 0 0 0 rgba(52,199,123,.5); }
+    70% { box-shadow: 0 0 0 18px rgba(52,199,123,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,199,123,0); }
+  }
+  .task-card.just-done { animation: cardPop 1.3s ease-out 2; }
+  @keyframes bump {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.22); }
+    100% { transform: scale(1); }
+  }
+
+  .thumb-wrap {
+    position: relative; width: 100%;
+    aspect-ratio: 9 / 16; /* 竖版 9:16 预览；视频绝对定位裁切，高度只随宽度变化，不会被内容撑开 */
+    background: linear-gradient(135deg, rgba(61,107,255,.10), rgba(155,77,216,.12));
+    cursor: zoom-in; flex-shrink: 0;
+  }
+  .thumb-wrap video, .thumb-wrap .thumb-ph {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  .thumb-ph {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; opacity: .45;
+  }
+  .thumb-badge {
+    position: absolute; top: 8px; left: 8px;
+    font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    backdrop-filter: blur(6px);
+  }
+  .thumb-badge.done { background: var(--ok-soft); color: var(--ok); }
+  .thumb-badge.error { background: var(--err-soft); color: var(--err); }
+  .thumb-time {
+    position: absolute; top: 8px; right: 8px;
+    font-size: 10.5px; color: #fff;
+    background: rgba(31, 36, 48, 0.45); backdrop-filter: blur(6px);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .play-hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.85);
+    width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(31, 36, 48, 0.55); backdrop-filter: blur(6px);
+    color: #fff; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity .2s, transform .2s;
+    pointer-events: none;
+  }
+  .thumb-wrap:hover .play-hint { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+
+  .card-body {
+    display: flex; flex-direction: column; flex: 1;
+    /* 注意：不能加 min-height:0 —— 会让卡片在 Grid 行高计算中主体贡献为 0，整卡被压缩裁切 */
+    padding: 10px 12px 12px;
+  }
+  .task-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+  .task-head .tid { font-size: 13px; font-weight: 700; flex-shrink: 0; }
+  .task-meta {
+    font-size: 11.5px; color: var(--text-faint);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .task-error { color: var(--err); font-size: 12px; margin-bottom: 8px; }
+
+  /* 卡片底部操作行：单个通栏复制按钮 */
+  .task-actions { display: flex; gap: 8px; margin-top: auto; }
+  .btn-copy-main {
+    width: 100%; border: none; border-radius: 9px; cursor: pointer; font-family: inherit;
+    background: linear-gradient(120deg, #3d6bff, #7a4dd8); color: #fff;
+    font-size: 12px; font-weight: 600; padding: 8px 6px; white-space: nowrap;
+    box-shadow: 0 3px 10px rgba(61, 107, 255, 0.3);
+    transition: transform .15s, box-shadow .2s, opacity .2s;
+  }
+  .btn-copy-main:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(61, 107, 255, 0.38); }
+  .btn-copy-main:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+  .btn-copy-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* 视频灯箱预览 */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 50;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(15, 18, 30, 0.72); backdrop-filter: blur(8px);
+  }
+  .lightbox.show { display: flex; }
+  .lightbox video {
+    max-width: 86vw; max-height: 82vh; border-radius: 12px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5); background: #000;
+  }
+  .lightbox .close {
+    position: absolute; top: 18px; right: 24px;
+    width: 38px; height: 38px; border-radius: 50%; border: none; cursor: pointer;
+    background: rgba(255, 255, 255, 0.15); color: #fff; font-size: 17px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .2s;
+  }
+  .lightbox .close:hover { background: rgba(255, 255, 255, 0.3); }
+  .lightbox .close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .lightbox .cap {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.85); font-size: 12.5px;
+    background: rgba(31, 36, 48, 0.55); padding: 6px 16px; border-radius: 999px;
+    max-width: 70vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .toast {
+    position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+    background: rgba(31, 36, 48, 0.85); backdrop-filter: blur(12px);
+    color: #fff; font-size: 13px;
+    padding: 10px 20px; border-radius: 999px; opacity: 0; pointer-events: none;
+    transition: opacity .25s; z-index: 10;
+  }
+  .toast.show { opacity: 1; }
+
+  @media (max-width: 980px) {
+    html, body { overflow: auto; height: auto; }
+    .app { height: auto; }
+    .main { grid-template-columns: 1fr; }
+    textarea { min-height: 110px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 顶部工具栏 -->
+  <div class="glass toolbar">
+    <div class="brand">
+      <img class="logo" src="/logo.png" alt="logo">
+      <span class="name">视频反推提示词</span>
+      <span class="ver">v1.0</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="status-pill">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">正在连接...</span>
+    </div>
+    <button class="win-btn" id="winBtn">显示窗口</button>
+  </div>
+
+  <div class="main">
+    <!-- 左栏：提交任务 -->
+    <div class="glass pane">
+      <div class="pane-head">
+        <span class="num">1</span>
+        <h2>提交任务</h2>
+        <span class="sub">可连续提交</span>
+      </div>
+      <div class="drop" id="videoDrop">
+        <div class="icon">🎬</div>
+        <div class="txt">点击或拖拽视频到此处</div>
+        <div class="sub">mp4 / mov / webm · 建议 &lt; 100MB</div>
+      </div>
+      <input type="file" id="videoInput" accept="video/*" hidden>
+      <div class="file-name" id="videoName"></div>
+      <div class="prompt-label">
+        提示词指令
+        <button class="btn-ghost" id="promptFileBtn">导入 .txt</button>
+        <input type="file" id="promptFile" accept=".txt,.md" hidden>
+      </div>
+      <textarea id="promptText" placeholder="填写发送给 Qwen 的提示词，例如：请仔细分析这个视频，反推出可以生成相同效果的视频提示词，用中文输出"></textarea>
+      <button class="btn-primary" id="startBtn" disabled>开始反推</button>
+    </div>
+
+    <!-- 右栏：任务队列 -->
+    <div class="glass pane">
+      <div class="pane-head">
+        <span class="num">2</span>
+        <h2>任务队列</h2>
+        <span class="sub" id="queueSub"></span>
+      </div>
+      <div class="pane-head" style="margin-bottom:12px">
+        <div class="filters" style="margin-left:0">
+          <button class="chip active" data-f="all" id="chipAll">全部<em class="cnt" id="cntAll">0</em></button>
+          <button class="chip" data-f="running" id="chipRunning">运行中<em class="cnt" id="cntRunning">0</em></button>
+          <button class="chip" data-f="done" id="chipDone">完成<em class="cnt" id="cntDone">0</em><span class="dot"></span></button>
+          <button class="chip" data-f="error" id="chipError">出错<em class="cnt" id="cntError">0</em></button>
+        </div>
+      </div>
+      <div class="queue-list" id="taskList"></div>
+      <div class="queue-empty show" id="queueEmpty">
+        <div class="icon">🗂️</div>
+        暂无任务，提交后队列将显示在这里
+      </div>
+    </div>
+  </div>
+</div>
+<div class="lightbox" id="lightbox">
+  <button class="close" title="关闭 (Esc)">✕</button>
+  <video controls playsinline></video>
+  <div class="cap"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let videoFile = null;
+const activeTasks = new Map(); // taskId -> { done, status, els }
+let currentFilter = 'all';
+let unreadDone = 0;   // 新完成且未查看的数量（点任意筛选 chip 清零）
+let restoring = false; // 页面加载恢复历史任务时不触发"新完成"提醒
+
+function updateTitle() {
+  document.title = unreadDone > 0
+    ? '(' + unreadDone + ') 新结果 · 视频反推提示词'
+    : '视频反推提示词';
+}
+let ready = false;
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ---------- 会话状态 + 窗口控制 ----------
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    ready = d.ready;
+    const dot = $('statusDot'), txt = $('statusText'), btn = $('winBtn');
+    if (d.ready) {
+      dot.className = 'dot ok';
+      txt.textContent = '会话就绪 · 运行中 ' + d.running + '/' + d.maxConcurrent;
+    } else {
+      dot.className = 'dot warn';
+      txt.textContent = '请在浏览器窗口中登录 Qwen';
+    }
+    btn.textContent = d.hidden ? '显示窗口' : '隐藏窗口';
+    btn.onclick = async () => {
+      const action = d.hidden ? 'show' : 'hide';
+      await fetch('/api/browser/' + action, { method: 'POST' });
+      pollStatus();
+    };
+    updateStartBtn();
+  } catch (e) {
+    $('statusDot').className = 'dot err';
+    $('statusText').textContent = '后端服务未连接';
+  }
+}
+setInterval(pollStatus, 3000);
+pollStatus();
+
+function updateStartBtn() {
+  $('startBtn').disabled = !videoFile || !ready;
+}
+
+// ---------- 视频选择 ----------
+$('videoDrop').onclick = () => $('videoInput').click();
+$('videoDrop').ondragover = e => { e.preventDefault(); $('videoDrop').classList.add('over'); };
+$('videoDrop').ondragleave = () => $('videoDrop').classList.remove('over');
+$('videoDrop').ondrop = e => {
+  e.preventDefault();
+  $('videoDrop').classList.remove('over');
+  if (e.dataTransfer.files[0]) setVideo(e.dataTransfer.files[0]);
+};
+$('videoInput').onchange = e => { if (e.target.files[0]) setVideo(e.target.files[0]); };
+
+function setVideo(f) {
+  if (!f.type.startsWith('video/')) return toast('请选择视频文件');
+  videoFile = f;
+  $('videoName').textContent = '已选择：' + f.name + '（' + (f.size / 1024 / 1024).toFixed(1) + ' MB）';
+  updateStartBtn();
+}
+
+// ---------- 提示词文件 ----------
+$('promptFileBtn').onclick = () => $('promptFile').click();
+$('promptFile').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => { $('promptText').value = reader.result; toast('提示词已载入'); };
+  reader.readAsText(f, 'utf-8');
+};
+
+// ---------- 提交任务 ----------
+$('startBtn').onclick = async () => {
+  const prompt = $('promptText').value.trim();
+  if (!videoFile) return toast('请先上传视频');
+  if (!prompt) return toast('请填写提示词');
+
+  const fd = new FormData();
+  fd.append('video', videoFile);
+  fd.append('prompt', prompt);
+
+  try {
+    const r = await fetch('/api/run', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || '提交失败');
+    createTaskCard(d.taskId, { prompt, videoName: videoFile.name });
+    toast('任务已提交，可继续提交下一个');
+    pollStatus();
+  } catch (e) {
+    toast('提交失败：' + e.message);
+  }
+};
+
+// ---------- 任务队列 ----------
+function fmtTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+}
+
+// ---------- 视频灯箱预览 ----------
+const lb = $('lightbox'), lbVideo = lb.querySelector('video'), lbCap = lb.querySelector('.cap');
+function closeLightbox() {
+  lb.classList.remove('show');
+  lbVideo.pause();
+  lbVideo.removeAttribute('src');
+  lbVideo.load();
+}
+function openLightbox(src, name) {
+  lbVideo.src = src;
+  lbCap.textContent = name || '';
+  lb.classList.add('show');
+}
+lb.querySelector('.close').onclick = closeLightbox;
+lb.addEventListener('click', e => { if (e.target === lb) closeLightbox(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && lb.classList.contains('show')) closeLightbox();
+});
+
+function escHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function createTaskCard(taskId, meta = {}) {
+  $('queueEmpty').classList.add('hide');
+  const card = document.createElement('div');
+  card.className = 'task-card st-running';
+  card.dataset.status = 'running';
+  card.innerHTML =
+    '<div class="thumb-wrap" title="点击预览视频">' +
+      '<div class="thumb-ph">🎬</div>' +
+      '<span class="thumb-badge">排队中</span>' +
+      '<span class="thumb-time">' + escHtml(fmtTime(meta.createdAt)) + '</span>' +
+      '<span class="play-hint">▶</span>' +
+    '</div>' +
+    '<div class="card-body">' +
+      '<div class="task-head">' +
+        '<span class="tid">任务 #' + taskId + '</span>' +
+        (meta.videoName ? '<span class="task-meta" title="' + escHtml(meta.videoName) + '">🎬 ' + escHtml(meta.videoName) + '</span>' : '') +
+      '</div>' +
+      '<div class="task-error" style="display:none"></div>' +
+      '<div class="task-actions">' +
+        '<button class="btn-copy-main copy-btn" disabled>📋 复制反推结果</button>' +
+      '</div>' +
+    '</div>';
+  $('taskList').prepend(card);
+
+  const thumbWrap = card.querySelector('.thumb-wrap');
+  // 提示词与反推结果都不在卡片上展示，仅存内存供复制按钮使用
+  const copyBtn = card.querySelector('.copy-btn');
+  copyBtn.onclick = async () => {
+    const text = ui.resultText || '';
+    if (!text.trim()) return toast('暂无结果');
+    await navigator.clipboard.writeText(text);
+    toast('已复制到剪贴板');
+  };
+  thumbWrap.onclick = () => {
+    if (ui.videoSet) openLightbox(thumbWrap.querySelector('video').src, meta.videoName);
+  };
+
+  const ui = {
+    done: false,
+    status: 'running',
+    videoSet: false,
+    els: { card },
+    resultText: '',
+    setPrompt() { /* 提示词不再展示，保留空实现兼容旧调用 */ },
+    setVideo(file) {
+      if (!file || ui.videoSet) return;
+      ui.videoSet = true;
+      const ph = thumbWrap.querySelector('.thumb-ph');
+      if (ph) ph.remove();
+      const v = document.createElement('video');
+      v.src = '/uploads/' + encodeURIComponent(file) + '#t=0.1';
+      v.preload = 'metadata';
+      v.muted = true;
+      v.playsInline = true;
+      v.onerror = () => { // 视频文件已清理时回退占位图
+        v.remove();
+        if (!thumbWrap.querySelector('.thumb-ph')) {
+          const p = document.createElement('div');
+          p.className = 'thumb-ph';
+          p.textContent = '🎬';
+          thumbWrap.prepend(p);
+        }
+      };
+      thumbWrap.prepend(v);
+    },
+    setStatus(status, stepText, stepClass) {
+      ui.status = status;
+      card.dataset.status = status;
+      card.className = 'task-card st-' + (status === 'done' ? 'done' : status === 'error' ? 'error' : 'running');
+      const badge = card.querySelector('.thumb-badge');
+      badge.textContent = stepText;
+      badge.className = 'thumb-badge' + (stepClass ? ' ' + stepClass : '');
+      // 预览图底部完成/出错横幅（restore 的历史任务也补上，保证扫视一致）
+      const tw = card.querySelector('.thumb-wrap');
+      if ((status === 'done' || status === 'error') && !tw.querySelector('.finish-strip')) {
+        const s = document.createElement('div');
+        s.className = 'finish-strip ' + (status === 'done' ? 'ok' : 'err');
+        s.textContent = status === 'done' ? '✓ 已完成' : '✕ 出错';
+        tw.appendChild(s);
+      }
+      // 非恢复场景的"新结果"提醒：卡片脉冲 + 徽标弹跳 + 未读计数/标题
+      if (!restoring && (status === 'done' || status === 'error')) {
+        card.classList.add('just-done');
+        setTimeout(() => card.classList.remove('just-done'), 2700);
+        const b = $(status === 'done' ? 'cntDone' : 'cntError');
+        b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump');
+        if (status === 'done') {
+          unreadDone++;
+          $('chipDone').classList.add('has-unread');
+          updateTitle();
+        }
+      }
+      applyFilter(card);
+      updateBadges();
+    },
+  };
+
+  activeTasks.set(String(taskId), ui);
+  applyFilter(card);
+  updateBadges();
+  return ui;
+}
+
+function applyTask(ui, t) {
+  if (t.videoFile) ui.setVideo(t.videoFile);
+  if (t.status === 'running') {
+    ui.setStatus('running', t.step || '运行中');
+    return;
+  }
+  if (ui.done) return;
+  ui.done = true;
+  const card = ui.els.card;
+  if (t.status === 'done') {
+    ui.setStatus('done', '完成', 'done');
+    ui.resultText = t.text || '';
+    card.querySelector('.copy-btn').disabled = false;
+  } else {
+    ui.setStatus('error', t.step === '已中断' ? '已中断' : '出错', 'error');
+    const err = card.querySelector('.task-error');
+    err.textContent = t.error;
+    err.style.display = '';
+  }
+  pollStatus();
+}
+
+// 状态筛选
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.onclick = () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentFilter = chip.dataset.f;
+    document.querySelectorAll('.task-card').forEach(applyFilter);
+    // 查看过队列即清除未读提醒
+    unreadDone = 0;
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('has-unread'));
+    updateTitle();
+    updateEmpty();
+  };
+});
+
+function applyFilter(card) {
+  const st = card.dataset.status;
+  const show = currentFilter === 'all' || currentFilter === st;
+  card.dataset.filtered = show ? 'show' : 'hide';
+}
+
+function updateEmpty() {
+  const hasCards = activeTasks.size > 0;
+  const visible = [...document.querySelectorAll('.task-card')].some(c => c.dataset.filtered !== 'hide');
+  $('queueEmpty').classList.toggle('hide', hasCards && visible);
+}
+
+function updateBadges() {
+  let total = 0, running = 0, done = 0, error = 0;
+  for (const ui of activeTasks.values()) {
+    total++;
+    if (ui.status === 'running') running++;
+    else if (ui.status === 'done') done++;
+    else error++;
+  }
+  $('cntAll').textContent = total;
+  $('cntRunning').textContent = running;
+  $('cntDone').textContent = done;
+  $('cntError').textContent = error;
+  $('queueSub').textContent = running ? running + ' 个任务进行中' : '';
+}
+
+// 页面加载时恢复完整任务队列（升序遍历 + prepend = 最新在最上）
+async function restoreTasks() {
+  try {
+    restoring = true;
+    const list = await (await fetch('/api/tasks')).json();
+    for (const t of list.reverse()) {
+      if (activeTasks.has(String(t.id))) continue;
+      const ui = createTaskCard(t.id, { prompt: t.prompt, videoName: t.videoName, createdAt: t.createdAt });
+      applyTask(ui, t);
+    }
+    updateEmpty();
+  } catch (e) { /* 后端未连接时忽略 */ }
+  finally { restoring = false; }
+}
+restoreTasks();
+
+async function pollTasks() {
+  for (const [id, ui] of activeTasks) {
+    if (ui.done) continue;
+    try {
+      const t = await (await fetch('/api/task/' + id)).json();
+      applyTask(ui, t);
+    } catch (e) {
+      ui.done = true;
+      ui.setStatus('error', '已丢失', 'error');
+      const err = ui.els.card.querySelector('.task-error');
+      err.textContent = '后端服务已重启，请重新提交';
+      err.style.display = '';
+    }
+  }
+}
+setInterval(pollTasks, 2000);
+</script>
+</body>
+</html>
